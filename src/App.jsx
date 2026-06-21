@@ -3,11 +3,12 @@ import HudRing from "./HudRing.jsx";
 import Candles from "./Candles.jsx";
 import {
   DEFAULT_WATCHLIST, INTERVALS, fetchMarketsByIds, searchCoins, fetchChartData,
-  bucketToCandles, computeSignal, quickTone, computePlan, usdt, fmtBig,
+  bucketToCandles, computeSignal, quickTone, computePlan, detectSpike, usdt, fmtBig,
 } from "./market.js";
 
 const MARKET_REFRESH_MS = 45000;
 const CHART_REFRESH_MS = 60000;
+const SPIKE_CHECK_MS = 60000;
 const SEARCH_DEBOUNCE_MS = 350;
 
 function CoinIcon({ coin, size = 22 }) {
@@ -45,6 +46,8 @@ export default function App() {
 
   const [journal, setJournal] = useState([]);
   const [showJournal, setShowJournal] = useState(false);
+  const [alerts, setAlerts] = useState([]); // {id, coinId, sym, direction, pct, price, t}
+  const seenAlertKeysRef = useRef(new Set());
 
   const [messages, setMessages] = useState([{
     role: "chlarc",
@@ -81,6 +84,41 @@ export default function App() {
     loadMarkets(watchIds);
     const id = setInterval(() => loadMarkets(watchIds), MARKET_REFRESH_MS);
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchIds.join(",")]);
+
+  // Background spike/drop watcher: periodically checks every coin on the
+  // watchlist for an unusually large recent move and surfaces a 🔔 alert,
+  // even if the user isn't currently looking at that coin's chart.
+  useEffect(() => {
+    let cancelled = false;
+    const checkAll = async () => {
+      for (const id of watchIds) {
+        if (cancelled) return;
+        try {
+          const { prices, volumes } = await fetchChartData(id, 1);
+          const c = bucketToCandles(prices, volumes, 15, 40);
+          const spike = detectSpike(c, 2.5);
+          if (spike) {
+            const key = `${id}-${spike.t}-${spike.direction}`;
+            if (!seenAlertKeysRef.current.has(key)) {
+              seenAlertKeysRef.current.add(key);
+              const market = markets.find((m) => m.id === id);
+              const sym = (market?.symbol || id).toUpperCase();
+              const alert = { id: key, coinId: id, sym, direction: spike.direction, pct: spike.pct, price: spike.price, t: spike.t };
+              setAlerts((p) => [alert, ...p].slice(0, 20));
+              setMessages((p) => [...p, {
+                role: "chlarc",
+                text: `🔔 ${spike.direction === "up" ? "🟢 Spike up" : "🔴 Spike down"} on ${sym}: ${spike.pct > 0 ? "+" : ""}${spike.pct.toFixed(2)}% in the last candle, now ${usdt(spike.price)}. Possible ${spike.direction === "up" ? "sell-the-pop" : "buy-the-dip"} opportunity worth a look — guidance only, your call.`,
+              }]);
+            }
+          }
+        } catch { /* skip this coin this round, will retry next interval */ }
+      }
+    };
+    checkAll();
+    const id = setInterval(checkAll, SPIKE_CHECK_MS);
+    return () => { cancelled = true; clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchIds.join(",")]);
 
@@ -327,6 +365,16 @@ export default function App() {
 
           {marketsStatus === "offline" && (
             <div className="banner-warn">⚠ Can't reach live prices right now. Pull to retry or check your connection.</div>
+          )}
+
+          {alerts.length > 0 && (
+            <div className="alert-strip">
+              {alerts.slice(0, 6).map((a) => (
+                <div key={a.id} className={`alert-chip ${a.direction}`} onClick={() => openCoin(a.coinId)}>
+                  {a.direction === "up" ? "🟢" : "🔴"} {a.sym} {a.pct > 0 ? "+" : ""}{a.pct.toFixed(1)}%
+                </div>
+              ))}
+            </div>
           )}
 
           <div className="list">
@@ -577,6 +625,11 @@ function GlobalStyle() {
 
       .screen{ flex:1; overflow-y:auto; padding:12px 14px 90px; }
       .banner-warn{ background:rgba(246,70,93,.1); border:1px solid var(--red); color:var(--red); font-size:12px; padding:10px 12px; border-radius:8px; margin-bottom:10px; }
+
+      .alert-strip{ display:flex; gap:7px; overflow-x:auto; padding-bottom:10px; margin-bottom:6px; }
+      .alert-chip{ flex-shrink:0; font-size:11px; font-weight:700; padding:7px 11px; border-radius:20px; white-space:nowrap; cursor:pointer; }
+      .alert-chip.up{ background:rgba(14,203,129,.14); color:var(--green); border:1px solid var(--green); }
+      .alert-chip.down{ background:rgba(246,70,93,.14); color:var(--red); border:1px solid var(--red); }
 
       .search-wrap{ position:relative; margin-bottom:10px; }
       .search-box{ display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
