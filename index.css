@@ -1,0 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Share+Tech+Mono&display=swap');
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; background: #070b12; overscroll-behavior-y: none; }
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #d8eefc;
+  -webkit-font-smoothing: antialiased;
+}
+#root { min-height: 100vh; }
+input, button { font-family: inherit; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-thumb { background: rgba(63,216,240,.18); border-radius: 3px; }
