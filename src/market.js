@@ -8,7 +8,15 @@ export const DEFAULT_WATCHLIST = [
   "cardano", "dogecoin", "avalanche-2", "tron", "chainlink",
 ];
 
-const BASE = "https://api.coingecko.com/api/v3";
+// All requests are routed through our own Vercel serverless proxy
+// (/api/coingecko) instead of hitting api.coingecko.com directly from the
+// browser. Several CoinGecko endpoints (notably market_chart) reject
+// cross-origin browser requests with CORS, which silently breaks chart
+// loading. The proxy runs server-side, where CORS doesn't apply.
+function proxyUrl(path, params) {
+  const qs = new URLSearchParams({ path, ...params });
+  return `/api/coingecko?${qs.toString()}`;
+}
 
 export const INTERVALS = [
   // label, CoinGecko `days` param, intraday flag (controls axis label format)
@@ -32,7 +40,7 @@ export const INTERVALS = [
 
 export async function fetchMarkets(ids) {
   const list = ids && ids.length ? ids : DEFAULT_WATCHLIST;
-  const url = `${BASE}/coins/markets?vs_currency=usd&ids=${list.join(",")}&order=market_cap_desc&price_change_percentage=24h`;
+  const url = proxyUrl("/coins/markets", { vs_currency: "usd", ids: list.join(","), order: "market_cap_desc", price_change_percentage: "24h" });
   const r = await fetch(url);
   if (!r.ok) throw new Error("markets fetch failed: " + r.status);
   const data = await r.json();
@@ -44,7 +52,7 @@ export async function fetchMarkets(ids) {
 export async function searchCoins(query) {
   const q = query.trim();
   if (!q) return [];
-  const url = `${BASE}/search?query=${encodeURIComponent(q)}`;
+  const url = proxyUrl("/search", { query: q });
   const r = await fetch(url);
   if (!r.ok) throw new Error("search failed: " + r.status);
   const data = await r.json();
@@ -58,7 +66,7 @@ export async function searchCoins(query) {
 // pulled in via search.
 export async function fetchMarketsByIds(ids) {
   if (!ids || !ids.length) return [];
-  const url = `${BASE}/coins/markets?vs_currency=usd&ids=${ids.join(",")}&order=market_cap_desc&price_change_percentage=24h`;
+  const url = proxyUrl("/coins/markets", { vs_currency: "usd", ids: ids.join(","), order: "market_cap_desc", price_change_percentage: "24h" });
   const r = await fetch(url);
   if (!r.ok) throw new Error("markets fetch failed: " + r.status);
   const data = await r.json();
@@ -71,7 +79,7 @@ export async function fetchMarketsByIds(ids) {
 // OHLC + volume candles ourselves so any interval (1m..1M) can be
 // approximated from the same source.
 export async function fetchChartData(id, days) {
-  const url = `${BASE}/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
+  const url = proxyUrl(`/coins/${id}/market_chart`, { vs_currency: "usd", days: String(days) });
   const r = await fetch(url);
   if (!r.ok) throw new Error("chart fetch failed: " + r.status);
   const data = await r.json();
